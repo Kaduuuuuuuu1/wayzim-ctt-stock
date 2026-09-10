@@ -65,11 +65,13 @@ def preparar_base_dados():
             )
         """)
         
-        # Migração caso a tabela movimentos já exista
+        # Migração caso a tabela movimentos já exista (Adiciona a coluna da imagem das preventivas)
         cursor_mov = con.execute("PRAGMA table_info(movimentos)")
         colunas_mov = [col[1] for col in cursor_mov.fetchall()]
         if "observacoes" not in colunas_mov:
             con.execute("ALTER TABLE movimentos ADD COLUMN observacoes TEXT")
+        if "imagem" not in colunas_mov:
+            con.execute("ALTER TABLE movimentos ADD COLUMN imagem TEXT")
         
         con.execute("""
             CREATE TABLE IF NOT EXISTS tecnicos (
@@ -313,7 +315,7 @@ def normalizar_codigo(texto):
     if not texto: return ""
     return str(texto).upper().strip().replace("-", "").replace(" ", "").replace("O", "0")
 
-def registar_movimento(peca_id, tipo, quantidade, maquina, observacoes, tecnico):
+def registar_movimento(peca_id, tipo, quantidade, maquina, observacoes, tecnico, imagem=None):
     with ligar_base_dados() as con:
         if peca_id:
             stock_atual = con.execute("SELECT stock FROM pecas WHERE id = ?", (peca_id,)).fetchone()[0]
@@ -322,8 +324,8 @@ def registar_movimento(peca_id, tipo, quantidade, maquina, observacoes, tecnico)
             novo_stock = stock_atual - quantidade if tipo == "Saída" else stock_atual + quantidade
             con.execute("UPDATE pecas SET stock = ? WHERE id = ?", (novo_stock, peca_id))
         
-        con.execute("INSERT INTO movimentos (peca_id, tipo, quantidade, maquina, observacoes, tecnico, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (peca_id, tipo, quantidade, maquina, observacoes, tecnico, datetime.now().isoformat()))
+        con.execute("INSERT INTO movimentos (peca_id, tipo, quantidade, maquina, observacoes, tecnico, data, imagem) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (peca_id, tipo, quantidade, maquina, observacoes, tecnico, datetime.now().isoformat(), imagem))
     return True, "Registo efetuado com sucesso."
 
 if "pagina_atual" not in st.session_state:
@@ -488,13 +490,25 @@ elif st.session_state.pagina_atual == "📝 Registar Preventiva":
     maquina_prev_final = f"{sistema_prev} — {detalhe_prev}" if detalhe_prev else sistema_prev
     obs_prev = st.text_area("📝 Relatório de Preventiva / Pendências", placeholder="Ex: Preventiva executada sem anomalias. Ficou pendente verificar sensor X na próxima intervenção...", key="prev_obs")
 
+    # NOVA ÁREA PARA FOTOGRAFIA NA PREVENTIVA
+    foto_prev = st.file_uploader("📷 Adicionar Fotografia da Intervenção (Opcional)", type=["png", "jpg", "jpeg"], key="foto_prev")
+
     if st.button("Guardar Relatório de Preventiva"):
         if not obs_prev:
             st.warning("Por favor, escreve pelo menos uma breve nota no relatório.")
         else:
-            suc, msg = registar_movimento(None, "Preventiva", 0, maquina_prev_final, obs_prev, st.session_state.utilizador_atual)
+            img_nome = None
+            # SE HOUVER FOTO, GUARDA NA PASTA DE IMAGENS
+            if foto_prev:
+                ext = foto_prev.name.split(".")[-1]
+                img_nome = f"prev_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
+                with open(os.path.join(IMAGENS_DIR, img_nome), "wb") as f: 
+                    f.write(foto_prev.getbuffer())
+            
+            # CHAMA A FUNÇÃO AGORA COM A IMAGEM
+            suc, msg = registar_movimento(None, "Preventiva", 0, maquina_prev_final, obs_prev, st.session_state.utilizador_atual, imagem=img_nome)
             if suc:
-                st.success("Relatório de preventiva registado com sucesso para toda a equipa consultar!")
+                st.success("Relatório e fotografia registados com sucesso para toda a equipa consultar!")
             else:
                 st.error(msg)
 
@@ -539,6 +553,7 @@ elif st.session_state.pagina_atual == "📷 Leitor QR":
 elif st.session_state.pagina_atual == "📋 Histórico":
     st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Histórico Global de Movimentos e Preventivas</p>", unsafe_allow_html=True)
     with ligar_base_dados() as con:
+        # ATUALIZADO PARA MOSTRAR SE HÁ FOTO ANEXADA NA PREVENTIVA
         df_h = pd.read_sql_query("""
             SELECT 
                 strftime('%d/%m %H:%M', m.data) AS Data, 
@@ -548,7 +563,8 @@ elif st.session_state.pagina_atual == "📋 Histórico":
                 CASE WHEN m.quantidade > 0 THEN m.quantidade ELSE '—' END AS Qtd, 
                 m.tecnico AS Técnico, 
                 m.maquina AS Equipamento, 
-                m.observacoes AS Apontamentos 
+                m.observacoes AS Apontamentos,
+                CASE WHEN m.imagem IS NOT NULL THEN '📷 Sim' ELSE '—' END AS Foto
             FROM movimentos m 
             LEFT JOIN pecas p ON p.id = m.peca_id 
             ORDER BY m.id DESC
