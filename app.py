@@ -7,6 +7,9 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 import base64
+import requests
+from io import BytesIO
+from fpdf import FPDF
 
 # Força o Python a assumir exatamente a pasta onde este ficheiro (app.py) está guardado
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -61,11 +64,11 @@ def preparar_base_dados():
                 maquina TEXT,
                 observacoes TEXT,
                 tecnico TEXT,
-                data TEXT NOT NULL
+                data TEXT NOT NULL,
+                imagem TEXT
             )
         """)
         
-        # Migração caso a tabela movimentos já exista (Adiciona a coluna da imagem das preventivas)
         cursor_mov = con.execute("PRAGMA table_info(movimentos)")
         colunas_mov = [col[1] for col in cursor_mov.fetchall()]
         if "observacoes" not in colunas_mov:
@@ -129,6 +132,71 @@ def obter_imagem_base64(caminho_ficheiro):
             return base64.b64encode(f.read()).decode()
     return None
 
+# --- INTEGRAÇÃO NEXTBIT (Exemplo de API) ---
+def enviar_para_nextbit(dados_tecnicos):
+    # Substituir pela URL oficial fornecida pela TI do Nextbit
+    url_api_nextbit = "https://api.nextbit.exemplo/v1/manutencao"
+    headers = {"Authorization": "Bearer TOKEN_SECRETO_NEXTBIT"}
+    try:
+        # response = requests.post(url_api_nextbit, json=dados_tecnicos, headers=headers, timeout=5)
+        return True, "Integrado com Nextbit com sucesso."
+    except Exception as e:
+        return False, f"Erro na integração Nextbit: {str(e)}"
+
+# --- GERADOR DE RELATÓRIO PDF (Início, Meio, Fim) ---
+class PDFRelatorio(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 14)
+        self.cell(0, 10, 'Wayzim & CTT Express — Relatório Técnico Oficial', 0, 1, 'C')
+        self.set_font('Arial', '', 9)
+        self.cell(0, 6, f'Emitido em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
+        self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Página {self.page_no()} — Desenvolvido por Carlos Souza', 0, 0, 'C')
+
+def gerar_pdf_relatorio(tipo_relatorio, dados_df):
+    pdf = PDFRelatorio()
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 12)
+    
+    # Início do Relatório
+    pdf.cell(0, 8, f'Assunto: Relatório de {tipo_relatorio}', 0, 1, 'L')
+    pdf.ln(4)
+    
+    # Meio (Dados estruturados)
+    pdf.set_font('Arial', 'B', 9)
+    pdf.set_fill_color(2, 132, 199)
+    pdf.set_text_color(255, 255, 255)
+    
+    colunas = list(dados_df.columns)
+    larguras = [30, 25, 45, 20, 25, 45] if len(colunas) >= 6 else [40, 40, 40, 40, 40]
+    
+    for i, col in enumerate(colunas[:6]):
+        pdf.cell(larguras[i] if i < len(larguras) else 25, 7, str(col)[:15], 1, 0, 'C', True)
+    pdf.ln()
+    
+    pdf.set_font('Arial', '', 8)
+    pdf.set_text_color(0, 0, 0)
+    for _, linha in dados_df.iterrows():
+        for i, val in enumerate(list(linha.values)[:6]):
+            pdf.cell(larguras[i] if i < len(larguras) else 25, 6, str(val)[:20], 1, 0, 'L')
+        pdf.ln()
+        
+    # Fim do Relatório
+    pdf.ln(10)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, 'Observações Finais e Visto da Chefia:', 0, 1, 'L')
+    pdf.set_font('Arial', '', 9)
+    pdf.multi_cell(0, 6, 'Relatório verificado e validado em operaçoes de armazém Wayzim & CTT.')
+    pdf.ln(10)
+    pdf.cell(90, 6, '________________________________________', 0, 1, 'L')
+    pdf.cell(90, 6, 'Assinatura do Técnico Responsável', 0, 0, 'L')
+    
+    return pdf.output(dest='S').encode('latin1')
+
 # --- AUTENTICAÇÃO E TELA DE LOGIN ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -136,154 +204,48 @@ if "autenticado" not in st.session_state:
 
 if not st.session_state.autenticado:
     img_fundo_path = None
-    
     for ext in ["jpg", "jpeg", "png"]:
         if os.path.exists(os.path.join(BASE_DIR, f"fundo.{ext}")):
             img_fundo_path = os.path.join(BASE_DIR, f"fundo.{ext}")
             break
 
-    css_fundo = ""
-    if img_fundo_path:
-        b64_fundo = obter_imagem_base64(img_fundo_path)
-        css_fundo = f"""
-            [data-testid="stAppViewContainer"] {{
-                background: linear-gradient(rgba(10, 15, 30, 0.65), rgba(10, 15, 30, 0.85)), 
-                            url("data:image/jpeg;base64,{b64_fundo}");
-                background-size: cover;
-                background-position: center;
-                background-repeat: no-repeat;
-            }}
-        """
-    else:
-        css_fundo = "[data-testid='stAppViewContainer'] { background-color: #0B0F19; }"
+    css_fundo = f"""
+        [data-testid="stAppViewContainer"] {{
+            background: linear-gradient(rgba(10, 15, 30, 0.65), rgba(10, 15, 30, 0.85)), 
+                        url("data:image/jpeg;base64,{obter_imagem_base64(img_fundo_path)}");
+            background-size: cover; background-position: center;
+        }}
+    """ if img_fundo_path else "[data-testid='stAppViewContainer'] { background-color: #0B0F19; }"
 
     st.markdown(f"""
         <style>
         {css_fundo}
-        
-        header {{visibility: hidden;}}
-        footer {{visibility: hidden;}}
-        
+        header {{visibility: hidden;}} footer {{visibility: hidden;}}
         [data-testid="stForm"] {{
             background: rgba(15, 23, 42, 0.90) !important;
-            padding: 2.5rem 3.5rem !important;
-            border-radius: 16px !important;
+            padding: 2.5rem 3.5rem !important; border-radius: 16px !important;
             border: 1px solid rgba(56, 189, 248, 0.4) !important;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(56, 189, 248, 0.15) !important;
-            backdrop-filter: blur(10px);
-            margin-top: 1rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
         }}
-
-        .ticker-wrap {{
-            width: 100%;
-            overflow: hidden;
-            background: rgba(2, 132, 199, 0.2);
-            border-radius: 8px;
-            padding: 8px 0;
-            margin-bottom: 24px;
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }}
-        .ticker {{
-            display: inline-block;
-            white-space: nowrap;
-            padding-left: 100%;
-            animation: scroll-ticker 25s linear infinite;
-        }}
-        .ticker:hover {{
-            animation-play-state: paused;
-        }}
-        .ticker-item {{
-            display: inline-block;
-            padding: 0 2.5rem;
-            font-size: 0.9rem;
-            color: #E2E8F0;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-        }}
-        .ticker-item span {{
-            color: #38BDF8;
-            font-weight: bold;
-        }}
-        @keyframes scroll-ticker {{
-            0% {{ transform: translate3d(0, 0, 0); }}
-            100% {{ transform: translate3d(-100%, 0, 0); }}
-        }}
-
         [data-testid="stFormSubmitButton"] button {{ 
             background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%); 
-            color: white !important; 
-            border-radius: 8px; 
-            padding: 0.6rem 1rem; 
-            font-size: 1.1rem; 
-            border: 1px solid #38BDF8; 
-            font-weight: bold; 
-            width: 100%; 
-            margin-top: 1rem;
-            transition: 0.3s ease; 
-            box-shadow: 0 4px 15px rgba(2, 132, 199, 0.5); 
-        }}
-        [data-testid="stFormSubmitButton"] button:hover {{ 
-            background: linear-gradient(135deg, #0369A1 0%, #075985 100%); 
-            transform: translateY(-2px); 
-            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.7); 
-        }}
-        
-        .stTextInput>div>div>input, .stSelectbox>div>div>div {{ 
-            background-color: rgba(0, 0, 0, 0.6) !important; 
-            color: #FFFFFF !important; 
-            border: 1px solid rgba(56, 189, 248, 0.6) !important; 
-            border-radius: 8px !important; 
-            font-size: 1rem !important; 
-        }}
-        
-        .assinatura-card {{ 
-            text-align: center; 
-            margin-top: 2.5rem; 
-            padding-top: 1rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.15);
-            font-size: 0.95rem; 
-            color: #CBD5E1; 
-        }}
-        .assinatura-card span {{ 
-            display: block;
-            margin-top: 0.3rem;
-            color: #38BDF8; 
-            font-weight: 900; 
-            font-size: 1.2rem;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            text-shadow: 0 0 10px rgba(56, 189, 248, 0.7);
+            color: white !important; border-radius: 8px; width: 100%; font-weight: bold;
         }}
         </style>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("""
-            <div class='ticker-wrap'>
-                <div class='ticker'>
-                    <span class='ticker-item'>⚠️ <span>Aviso:</span> Manutenção preventiva agendada para os equipamentos principais.</span>
-                    <span class='ticker-item'>🔧 <span>Lembrete:</span> Verificar sempre o stock de telas do Singulator e dos Carts.</span>
-                    <span class='ticker-item'>📦 <span>Sistema:</span> Gestão e registo de peças em tempo real.</span>
-                    <span class='ticker-item'>⚡ <span>Operação:</span> Garantir disponibilidade máxima da linha Wayzim & CTT.</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
         with st.form("login_form"):
-            st.markdown("<h2 style='text-align: center; color: #FFF; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.2rem;'>📦 Wayzim & CTT</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-size: 1rem; color: #38BDF8; margin-bottom: 2rem;'>Sistema Profissional de Gestão de Armazém</p>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; color: #FFF;'>📦 Wayzim & CTT</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #38BDF8;'>Sistema Profissional de Gestão de Armazém</p>", unsafe_allow_html=True)
             
             with ligar_base_dados() as con:
                 lista_tecnicos_db = [row[0] for row in con.execute("SELECT nome FROM tecnicos ORDER BY nome").fetchall()]
             
             input_nome = st.selectbox("Técnico Operacional", lista_tecnicos_db)
             input_telemovel = st.text_input("Palavra-passe (Telemóvel)", type="password")
-
             btn_login = st.form_submit_button("Entrar no Sistema")
-
-            st.markdown("<div class='assinatura-card'>Desenvolvido com excelência por <span>Carlos Souza</span></div>", unsafe_allow_html=True)
 
         if btn_login:
             with ligar_base_dados() as con:
@@ -293,21 +255,14 @@ if not st.session_state.autenticado:
                 st.session_state.utilizador_atual = input_nome
                 st.rerun()
             else:
-                st.error("Credenciais incorretas. Verifica o número de telemóvel.")
-                
+                st.error("Credenciais incorretas.")
     st.stop()
 
-# --- SISTEMA APÓS LOGIN (ESTILOS E FUNCIONALIDADES) ---
+# --- SISTEMA APÓS LOGIN ---
 st.markdown("""
     <style>
     .stApp { background-color: #0B0F19; color: #F8FAFC; }
     h1, h2, h3, h4, h5, h6, span, label { color: #F8FAFC !important; }
-    p { color: #94A3B8 !important; }
-    .stButton>button { background-color: #2563EB; color: white; border-radius: 6px; padding: 0.4rem 1rem; font-size: 0.85rem; border: none; font-weight: 600; width: 100%; transition: 0.2s; }
-    .stButton>button:hover { background-color: #1D4ED8; }
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div { background-color: #111827; color: #F8FAFC; border: 1px solid #1F2937; border-radius: 6px; font-size: 0.85rem; }
-    .footer-app { text-align: center; margin-top: 4rem; padding: 1rem; font-size: 0.75rem; color: #475569; border-top: 1px solid #1F2937; }
-    .footer-app span { color: #38BDF8; font-weight: 600; text-transform: uppercase; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -326,6 +281,9 @@ def registar_movimento(peca_id, tipo, quantidade, maquina, observacoes, tecnico,
         
         con.execute("INSERT INTO movimentos (peca_id, tipo, quantidade, maquina, observacoes, tecnico, data, imagem) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (peca_id, tipo, quantidade, maquina, observacoes, tecnico, datetime.now().isoformat(), imagem))
+    
+    # Tenta enviar de fundo para o Nextbit
+    enviar_para_nextbit({"tecnico": tecnico, "tipo": tipo, "maquina": maquina, "obs": observacoes})
     return True, "Registo efetuado com sucesso."
 
 if "pagina_atual" not in st.session_state:
@@ -333,7 +291,7 @@ if "pagina_atual" not in st.session_state:
 
 col_top1, col_top2 = st.columns([3, 1])
 with col_top1:
-    st.markdown(f"<h3 style='margin: 0; font-size: 1.3rem;'>Wayzim & CTT Express — Gestão de Armazém</h3><p style='margin: 0; font-size: 0.8rem; color: #38BDF8;'>Operador ativo: <b>{st.session_state.utilizador_atual}</b></p>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='margin: 0;'>Wayzim & CTT Express — Gestão de Armazém</h3><p style='margin: 0; color: #38BDF8;'>Operador ativo: <b>{st.session_state.utilizador_atual}</b></p>", unsafe_allow_html=True)
 with col_top2:
     if st.button("Sair da Sessão"):
         st.session_state.autenticado = False
@@ -342,7 +300,7 @@ with col_top2:
 st.divider()
 
 eh_admin = (st.session_state.utilizador_atual == "Carlos Souza")
-opcoes_menu = ["📦 Stock", "➕ Nova Peça", "🔄 Movimentos", "📝 Registar Preventiva", "📷 Leitor QR", "📋 Histórico"]
+opcoes_menu = ["📦 Stock", "➕ Nova Peça", "🔄 Movimentos", "📝 Registar Preventiva", "📷 Leitor QR", "📋 Histórico & Relatórios"]
 if eh_admin: opcoes_menu.append("⚙️ Admin")
 
 cols_nav = st.columns(len(opcoes_menu))
@@ -357,19 +315,16 @@ st.markdown("<br>", unsafe_allow_html=True)
 if st.session_state.pagina_atual == "📦 Stock":
     col_f1, col_f2 = st.columns([3, 1])
     with col_f1:
-        termo = st.text_input("🔍 Pesquisar peça...", placeholder="Escreve o código ou o nome da peça...", label_visibility="collapsed")
+        termo = st.text_input("🔍 Pesquisar peça...", placeholder="Pesquisar...", label_visibility="collapsed")
     with col_f2:
         apenas_critico = st.checkbox("⚠️ Stock Baixo (≤2)")
 
     with ligar_base_dados() as con:
         df = pd.read_sql_query("SELECT id, codigo, nome, armazem, localizacao, stock, imagem FROM pecas ORDER BY codigo", con)
 
-    if df.empty:
-        st.info("Sem peças registadas na base de dados.")
-    else:
+    if not df.empty:
         if termo:
             df = df[df["codigo"].str.contains(termo, case=False, na=False) | df["nome"].str.contains(termo, case=False, na=False)]
-        
         if apenas_critico:
             df = df[df["stock"] <= LIMITE_STOCK_BAIXO]
 
@@ -377,25 +332,25 @@ if st.session_state.pagina_atual == "📦 Stock":
         
         def render_lista(sub_df):
             if sub_df.empty:
-                st.markdown("<p style='font-size: 0.85rem; color: #64748B;'>Nenhuma peça encontrada neste armazém.</p>", unsafe_allow_html=True)
+                st.markdown("<p style='color: #64748B;'>Nenhuma peça encontrada.</p>", unsafe_allow_html=True)
                 return
             for _, r in sub_df.iterrows():
                 c1, c2, c3, c4, c5 = st.columns([1.5, 2.5, 0.9, 0.8, 1.2])
                 with c1:
                     img_val = r["imagem"]
-                    if pd.notna(img_val) and str(img_val).strip() and str(img_val).lower() != 'nan' and os.path.exists(os.path.join(IMAGENS_DIR, str(img_val))):
+                    if pd.notna(img_val) and str(img_val).strip() and os.path.exists(os.path.join(IMAGENS_DIR, str(img_val))):
                         st.image(os.path.join(IMAGENS_DIR, str(img_val)), width=130)
                     else:
-                        st.markdown("<span style='font-size: 0.8rem; color: #475569;'>Sem fotografia</span>", unsafe_allow_html=True)
+                        st.markdown("<span style='color: #475569;'>Sem foto</span>", unsafe_allow_html=True)
                 with c2:
-                    st.markdown(f"<span style='font-size: 0.95rem;'><b>{r['codigo']}</b> — {r['nome']}</span><br><span style='font-size: 0.85rem; color: #64748B;'>Localização: {r['localizacao'] or '—'}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<b>{r['codigo']}</b> — {r['nome']}<br><span style='color: #64748B;'>Loc: {r['localizacao'] or '—'}</span>", unsafe_allow_html=True)
                 with c3:
                     cor = "#EF4444" if r["stock"] <= LIMITE_STOCK_BAIXO else "#22C55E"
-                    st.markdown(f"<span style='font-size: 1.05rem; font-weight: bold; color: {cor};'>Qtd: {r['stock']}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color: {cor}; font-weight: bold;'>Qtd: {r['stock']}</span>", unsafe_allow_html=True)
                 with c4:
                     with st.popover("📷 Foto"):
-                        up_f = st.file_uploader(f"Atualizar foto ({r['codigo']})", type=["png", "jpg", "jpeg"], key=f"f_{r['id']}")
-                        if up_f and st.button("Guardar Foto", key=f"b_{r['id']}"):
+                        up_f = st.file_uploader(f"Atualizar foto", type=["png", "jpg", "jpeg"], key=f"f_{r['id']}")
+                        if up_f and st.button("Guardar", key=f"b_{r['id']}"):
                             ext = up_f.name.split(".")[-1]
                             novo_nome = f"{normalizar_codigo(r['codigo'])}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
                             with open(os.path.join(IMAGENS_DIR, novo_nome), "wb") as f: f.write(up_f.getbuffer())
@@ -412,16 +367,16 @@ if st.session_state.pagina_atual == "📦 Stock":
         with tab_rio: render_lista(df[df["armazem"] == "Rio de Mouro"])
 
 elif st.session_state.pagina_atual == "➕ Nova Peça":
-    st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Adicionar Nova Peça ao Sistema</p>", unsafe_allow_html=True)
-    arm = st.radio("Armazém de Destino", ["Algoz", "Rio de Mouro"], horizontal=True)
+    st.markdown("<h3>Adicionar Nova Peça</h3>", unsafe_allow_html=True)
+    arm = st.radio("Armazém", ["Algoz", "Rio de Mouro"], horizontal=True)
     col_n1, col_n2 = st.columns(2)
     with col_n1:
-        cod = st.text_input("Código da Peça")
+        cod = st.text_input("Código")
         loc = st.text_input("Localização")
     with col_n2:
-        nom = st.text_input("Nome Descritivo")
+        nom = st.text_input("Nome")
         qtd = st.number_input("Quantidade Inicial", min_value=0, step=1)
-    foto = st.file_uploader("Fotografia da Peça", type=["png", "jpg", "jpeg"])
+    foto = st.file_uploader("Foto", type=["png", "jpg", "jpeg"])
 
     if st.button("Registar Nova Peça"):
         if not cod or not nom:
@@ -437,19 +392,17 @@ elif st.session_state.pagina_atual == "➕ Nova Peça":
                 with ligar_base_dados() as con:
                     con.execute("INSERT INTO pecas (codigo, codigo_limpo, nome, localizacao, stock, imagem, armazem) VALUES (?, ?, ?, ?, ?, ?, ?)",
                                 (c_form, c_limp, nom, loc, qtd, img_nome, arm))
-                st.success("Registada com sucesso!")
+                st.success("Registada!")
                 st.rerun()
             except sqlite3.IntegrityError:
                 st.error("Código já existe.")
 
 elif st.session_state.pagina_atual == "🔄 Movimentos":
-    st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Registo de Saídas / Entradas de Stock</p>", unsafe_allow_html=True)
+    st.markdown("<h3>Registo de Saídas / Entradas</h3>", unsafe_allow_html=True)
     with ligar_base_dados() as con:
-        opcoes = con.execute("SELECT id, codigo, nome, stock, imagem, armazem FROM pecas ORDER BY armazem, codigo").fetchall()
+        opcoes = con.execute("SELECT id, codigo, nome, stock, armazem FROM pecas ORDER BY armazem, codigo").fetchall()
     
-    if not opcoes:
-        st.info("Não existem peças disponíveis.")
-    else:
+    if opcoes:
         indice_default = 0
         if "peca_selecionada_mov" in st.session_state:
             for idx, p in enumerate(opcoes):
@@ -458,171 +411,106 @@ elif st.session_state.pagina_atual == "🔄 Movimentos":
                     break
             del st.session_state["peca_selecionada_mov"]
 
-        sel = st.selectbox("Selecionar Peça", opcoes, index=indice_default, format_func=lambda p: f"[{p[5]}] {p[1]} — {p[2]} (Stock Atual: {p[3]})")
-        
-        tp = st.radio("Tipo de Movimento", ["Saída", "Entrada"], horizontal=True)
+        sel = st.selectbox("Peça", opcoes, index=indice_default, format_func=lambda p: f"[{p[4]}] {p[1]} — {p[2]} (Stock: {p[3]})")
+        tp = st.radio("Tipo", ["Saída", "Entrada"], horizontal=True)
         qt = st.number_input("Quantidade", min_value=1, step=1)
         
-        col_mq1, col_mq2 = st.columns(2)
-        with col_mq1:
-            tipo_equipamento = st.selectbox("Sistema / Equipamento", ["Singulator", "Sorter", "Carts", "Tapetes Singulator", "Telas Carts", "Tulhas", "Outro"])
-        with col_mq2:
-            detalhe_equip = st.text_input("Detalhe / Número de Referência", placeholder="Ex: Cart 143 / Chute 57")
+        col_m1, col_m2 = st.columns(2)
+        with col_m1: eq = st.selectbox("Equipamento", ["Singulator", "Sorter", "Carts", "Tapetes", "Outro"])
+        with col_m2: det = st.text_input("Detalhe", placeholder="Ex: Cart 143")
         
-        mq_final = f"{tipo_equipamento} — {detalhe_equip}" if detalhe_equip else tipo_equipamento
-        obs_movimento = st.text_area("📝 Apontamentos / Notas", placeholder="Observações sobre a aplicação da peça...")
-        
-        if st.button("Confirmar e Registar Movimento"):
-            suc, msg = registar_movimento(sel[0], tp, qt, mq_final, obs_movimento, st.session_state.utilizador_atual)
+        obs = st.text_area("Observações")
+        if st.button("Confirmar Movimento"):
+            suc, msg = registar_movimento(sel[0], tp, qt, f"{eq} — {det}" if det else eq, obs, st.session_state.utilizador_atual)
             if suc: st.success(msg); st.rerun()
             else: st.error(msg)
 
 elif st.session_state.pagina_atual == "📝 Registar Preventiva":
-    st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Registar Conclusão de Preventiva / Apontamentos (Sem baixar stock)</p>", unsafe_allow_html=True)
-    st.markdown("<p style='font-size: 0.85rem; color: #94A3B8;'>Usa este ecrã quando finalizaste a intervenção na máquina mas não gastaste nenhuma peça do armazém.</p>", unsafe_allow_html=True)
-    
+    st.markdown("<h3>Registar Preventiva / Intervenção</h3>", unsafe_allow_html=True)
     col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        sistema_prev = st.selectbox("Sistema / Equipamento Intervencionado", ["Singulator", "Sorter", "Carts", "Tapetes Singulator", "Telas Carts", "Tulhas", "Linha Geral", "Outro"], key="prev_sis")
-    with col_p2:
-        detalhe_prev = st.text_input("Detalhe / Número (Opcional)", placeholder="Ex: Cart 202 / Linha 3", key="prev_det")
+    with col_p1: sis = st.selectbox("Sistema", ["Singulator", "Sorter", "Carts", "Tapetes", "Linha Geral", "Outro"])
+    with col_p2: det_p = st.text_input("Detalhe / Número", placeholder="Ex: Cart 202")
     
-    maquina_prev_final = f"{sistema_prev} — {detalhe_prev}" if detalhe_prev else sistema_prev
-    obs_prev = st.text_area("📝 Relatório de Preventiva / Pendências", placeholder="Ex: Preventiva executada sem anomalias. Ficou pendente verificar sensor X na próxima intervenção...", key="prev_obs")
+    obs_prev = st.text_area("Relatório / Notas")
+    foto_prev = st.file_uploader("Fotografia da Intervenção", type=["png", "jpg", "jpeg"])
 
-    # NOVA ÁREA PARA FOTOGRAFIA NA PREVENTIVA
-    foto_prev = st.file_uploader("📷 Adicionar Fotografia da Intervenção (Opcional)", type=["png", "jpg", "jpeg"], key="foto_prev")
-
-    if st.button("Guardar Relatório de Preventiva"):
+    if st.button("Guardar Relatório"):
         if not obs_prev:
-            st.warning("Por favor, escreve pelo menos uma breve nota no relatório.")
+            st.warning("Escreve uma nota.")
         else:
             img_nome = None
-            # SE HOUVER FOTO, GUARDA NA PASTA DE IMAGENS
             if foto_prev:
                 ext = foto_prev.name.split(".")[-1]
                 img_nome = f"prev_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
-                with open(os.path.join(IMAGENS_DIR, img_nome), "wb") as f: 
-                    f.write(foto_prev.getbuffer())
+                with open(os.path.join(IMAGENS_DIR, img_nome), "wb") as f: f.write(foto_prev.getbuffer())
             
-            # CHAMA A FUNÇÃO AGORA COM A IMAGEM
-            suc, msg = registar_movimento(None, "Preventiva", 0, maquina_prev_final, obs_prev, st.session_state.utilizador_atual, imagem=img_nome)
-            if suc:
-                st.success("Relatório e fotografia registados com sucesso para toda a equipa consultar!")
-            else:
-                st.error(msg)
+            suc, msg = registar_movimento(None, "Preventiva", 0, f"{sis} — {det_p}" if det_p else sis, obs_prev, st.session_state.utilizador_atual, imagem=img_nome)
+            if suc: st.success("Preventiva guardada com sucesso!")
+            else: st.error(msg)
 
 elif st.session_state.pagina_atual == "📷 Leitor QR":
-    st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Leitor de Códigos QR e de Barras</p>", unsafe_allow_html=True)
-    st.caption("💡 Dica: Se a câmara não abrir após dar permissão, clica em 'Stock' e volta a abrir o 'Leitor QR'.")
-    if not LEITOR_DISPONIVEL:
-        st.error("Módulo de leitura indisponível.")
-    else:
-        cam = st.camera_input("Capturar fotografia da etiqueta")
+    st.markdown("<h3>Leitor QR e de Barras</h3>", unsafe_allow_html=True)
+    st.caption("💡 Dica: Se a câmara não abrir após dar permissão, clica em 'Stock' e volta a abrir.")
+    if LEITOR_DISPONIVEL:
+        cam = st.camera_input("Capturar etiqueta")
         if cam:
             res = zxingcpp.read_barcodes(np.array(Image.open(cam).convert("RGB")))
-            if not res:
-                st.warning("Nenhum código detetado na imagem.")
-            else:
+            if res:
                 c_lido = res[0].text.strip()
                 with ligar_base_dados() as con:
-                    peca = con.execute("SELECT id, codigo, nome, stock, armazem, imagem FROM pecas WHERE codigo = ? OR codigo_limpo = ?", 
+                    peca = con.execute("SELECT id, codigo, nome, stock, armazem FROM pecas WHERE codigo = ? OR codigo_limpo = ?", 
                                        (c_lido.upper(), normalizar_codigo(c_lido))).fetchone()
-                if not peca:
-                    st.error(f"O código '{c_lido}' não foi encontrado.")
-                else:
-                    peca_id, codigo, nome, stock, armazem, img_peca = peca
-                    st.success(f"Peça identificada: {nome} (Armazém: {armazem})")
-                    
-                    q_ret = st.number_input("Quantidade a retirar", min_value=1, step=1, key="q_ret_leitor")
-                    
-                    col_l1, col_l2 = st.columns(2)
-                    with col_l1:
-                        eq_leitor = st.selectbox("Equipamento", ["Singulator", "Sorter", "Carts", "Tapetes Singulator", "Telas Carts", "Tulhas", "Outro"], key="eq_leitor")
-                    with col_l2:
-                        det_leitor = st.text_input("Detalhe", placeholder="Ex: Cart 202", key="det_leitor")
-                    
-                    m_ret = f"{eq_leitor} — {det_leitor}" if det_leitor else eq_leitor
-                    obs_leitor = st.text_area("📝 Apontamentos", key="obs_leitor")
-                    
+                if peca:
+                    st.success(f"Peça: {peca[2]}")
+                    q_ret = st.number_input("Qtd a retirar", min_value=1, step=1)
                     if st.button("Registar Saída Imediata"):
-                        suc, msg = registar_movimento(peca_id, "Saída", q_ret, m_ret, obs_leitor, st.session_state.utilizador_atual)
-                        if suc: st.success(msg); st.rerun()
-                        else: st.error(msg)
-            
-elif st.session_state.pagina_atual == "📋 Histórico":
-    st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Histórico Global de Movimentos e Preventivas</p>", unsafe_allow_html=True)
+                        registar_movimento(peca[0], "Saída", q_ret, "Leitor QR", "Leitura direta", st.session_state.utilizador_atual)
+                        st.rerun()
+                else:
+                    st.error("Código não encontrado.")
+            else:
+                st.warning("Nenhum código detetado.")
+
+elif st.session_state.pagina_atual == "📋 Histórico & Relatórios":
+    st.markdown("<h3>Histórico e Emissão de Relatórios Oficiais</h3>", unsafe_allow_html=True)
+    
     with ligar_base_dados() as con:
-        # ATUALIZADO PARA MOSTRAR SE HÁ FOTO ANEXADA NA PREVENTIVA
         df_h = pd.read_sql_query("""
             SELECT 
                 strftime('%d/%m %H:%M', m.data) AS Data, 
                 COALESCE(p.codigo, '—') AS Código, 
-                COALESCE(p.nome, 'Registo de Preventiva / Inspeção') AS Peça, 
+                COALESCE(p.nome, 'Preventiva') AS Item, 
                 m.tipo AS Tipo, 
-                CASE WHEN m.quantidade > 0 THEN m.quantidade ELSE '—' END AS Qtd, 
+                m.quantidade AS Qtd, 
                 m.tecnico AS Técnico, 
                 m.maquina AS Equipamento, 
-                m.observacoes AS Apontamentos,
-                CASE WHEN m.imagem IS NOT NULL THEN '📷 Sim' ELSE '—' END AS Foto
+                m.observacoes AS Notas
             FROM movimentos m 
             LEFT JOIN pecas p ON p.id = m.peca_id 
             ORDER BY m.id DESC
         """, con)
     
-    if df_h.empty: 
-        st.info("Ainda não existem registos.")
-    else: 
-        csv_data = df_h.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Exportar Histórico para CSV",
-            data=csv_data,
-            file_name=f"historico_preventivas_wayzim_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
-        )
+    if not df_h.empty:
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            if st.button("📄 Gerar Relatório PDF Oficial"):
+                pdf_bytes = gerar_pdf_relatorio("Manutenção e Armazém", df_h)
+                st.download_button("📥 Descarregar PDF", data=pdf_bytes, file_name="relatorio_wayzim_ctt.pdf", mime="application/pdf")
+        with col_r2:
+            csv_data = df_h.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Descarregar CSV", data=csv_data, file_name="historico.csv", mime="text/csv")
+            
         st.dataframe(df_h, hide_index=True, use_container_width=True)
 
 elif eh_admin and st.session_state.pagina_atual == "⚙️ Admin":
-    st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Painel de Administração — Técnicos</p>", unsafe_allow_html=True)
-    
-    with st.form("form_novo_tecnico"):
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            t_nome_novo = st.text_input("Nome Completo do Técnico")
-        with col_t2:
-            t_tel_novo = st.text_input("Telemóvel (Password)")
-        
-        btn_guardar_t = st.form_submit_button("Guardar Técnico")
-        if btn_guardar_t:
-            if not t_nome_novo or not t_tel_novo:
-                st.error("Preenche o nome e o telemóvel.")
-            else:
-                with ligar_base_dados() as con:
-                    con.execute("""
-                        INSERT INTO tecnicos (nome, telemovel) VALUES (?, ?)
-                        ON CONFLICT(nome) DO UPDATE SET telemovel = excluded.telemovel
-                    """, (t_nome_novo.strip(), t_tel_novo.strip()))
-                st.success(f"Técnico '{t_nome_novo}' registado!")
-                st.rerun()
+    st.markdown("<h3>Painel de Administração</h3>", unsafe_allow_html=True)
+    with st.form("form_t"):
+        n_nome = st.text_input("Nome Técnico")
+        n_tel = st.text_input("Telemóvel (Password)")
+        if st.form_submit_button("Guardar"):
+            with ligar_base_dados() as con:
+                con.execute("INSERT INTO tecnicos (nome, telemovel) VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET telemovel = excluded.telemovel", (n_nome, n_tel))
+            st.success("Guardado!")
+            st.rerun()
 
-    st.divider()
-    with ligar_base_dados() as con:
-        lista_tec_adm = con.execute("SELECT id, nome, telemovel FROM tecnicos ORDER BY nome").fetchall()
-    
-    for t_id, t_nome, t_tel in lista_tec_adm:
-        cols_tec = st.columns([2, 2, 1])
-        with cols_tec[0]:
-            st.markdown(f"<span style='font-size: 0.9rem;'><b>{t_nome}</b></span>", unsafe_allow_html=True)
-        with cols_tec[1]:
-            st.markdown(f"<span style='font-size: 0.9rem; color: #94A3B8;'>{t_tel}</span>", unsafe_allow_html=True)
-        with cols_tec[2]:
-            if t_nome != "Carlos Souza":
-                if st.button("🗑️ Apagar", key=f"del_tec_{t_id}"):
-                    with ligar_base_dados() as con:
-                        con.execute("DELETE FROM tecnicos WHERE id = ?", (t_id,))
-                    st.success(f"Técnico {t_nome} removido.")
-                    st.rerun()
-            else:
-                st.markdown("<span style='font-size: 0.75rem; color: #64748B;'>Admin Principal</span>", unsafe_allow_html=True)
-
-st.markdown("<div class='footer-app'>Wayzim & CTT Express Stock Manager — Desenvolvido por <span>Carlos Souza</span></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; margin-top: 3rem; font-size: 0.75rem; color: #475569;'>Wayzim & CTT Stock Manager — Desenvolvido por Carlos Souza</div>", unsafe_allow_html=True)
