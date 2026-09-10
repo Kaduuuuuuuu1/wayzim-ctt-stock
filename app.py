@@ -134,7 +134,6 @@ def obter_imagem_base64(caminho_ficheiro):
 
 # --- INTEGRAÇÃO NEXTBIT (Exemplo de API) ---
 def enviar_para_nextbit(dados_tecnicos):
-    # Substituir pela URL oficial fornecida pela TI do Nextbit
     url_api_nextbit = "https://api.nextbit.exemplo/v1/manutencao"
     headers = {"Authorization": "Bearer TOKEN_SECRETO_NEXTBIT"}
     try:
@@ -162,11 +161,9 @@ def gerar_pdf_relatorio(tipo_relatorio, dados_df):
     pdf.add_page()
     pdf.set_font('Arial', 'B', 12)
     
-    # Início do Relatório
     pdf.cell(0, 8, f'Assunto: Relatório de {tipo_relatorio}', 0, 1, 'L')
     pdf.ln(4)
     
-    # Meio (Dados estruturados)
     pdf.set_font('Arial', 'B', 9)
     pdf.set_fill_color(2, 132, 199)
     pdf.set_text_color(255, 255, 255)
@@ -185,12 +182,11 @@ def gerar_pdf_relatorio(tipo_relatorio, dados_df):
             pdf.cell(larguras[i] if i < len(larguras) else 25, 6, str(val)[:20], 1, 0, 'L')
         pdf.ln()
         
-    # Fim do Relatório
     pdf.ln(10)
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 6, 'Observações Finais e Visto da Chefia:', 0, 1, 'L')
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 6, 'Relatório verificado e validado em operaçoes de armazém Wayzim & CTT.')
+    pdf.multi_cell(0, 6, 'Relatório verificado e validado em operações de armazém Wayzim & CTT.')
     pdf.ln(10)
     pdf.cell(90, 6, '________________________________________', 0, 1, 'L')
     pdf.cell(90, 6, 'Assinatura do Técnico Responsável', 0, 0, 'L')
@@ -282,7 +278,6 @@ def registar_movimento(peca_id, tipo, quantidade, maquina, observacoes, tecnico,
         con.execute("INSERT INTO movimentos (peca_id, tipo, quantidade, maquina, observacoes, tecnico, data, imagem) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (peca_id, tipo, quantidade, maquina, observacoes, tecnico, datetime.now().isoformat(), imagem))
     
-    # Tenta enviar de fundo para o Nextbit
     enviar_para_nextbit({"tecnico": tecnico, "tipo": tipo, "maquina": maquina, "obs": observacoes})
     return True, "Registo efetuado com sucesso."
 
@@ -501,6 +496,8 @@ elif st.session_state.pagina_atual == "📋 Histórico & Relatórios":
             st.download_button("📥 Descarregar CSV", data=csv_data, file_name="historico.csv", mime="text/csv")
             
         st.dataframe(df_h, hide_index=True, use_container_width=True)
+    else:
+        st.info("ℹ️ Ainda não existem movimentos ou preventivas registadas. Faz um registo no menu 'Registar Preventiva' ou 'Movimentos' para começar a gerar relatórios oficiais.")
 
 elif eh_admin and st.session_state.pagina_atual == "⚙️ Admin":
     st.markdown("<h3>Painel de Administração</h3>", unsafe_allow_html=True)
