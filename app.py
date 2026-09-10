@@ -500,6 +500,7 @@ elif st.session_state.pagina_atual == "📝 Registar Preventiva":
 
 elif st.session_state.pagina_atual == "📷 Leitor QR":
     st.markdown("<p style='font-size: 1.1rem; font-weight: bold;'>Leitor de Códigos QR e de Barras</p>", unsafe_allow_html=True)
+    st.caption("💡 Dica: Se a câmara não abrir após dar permissão, clica em 'Stock' e volta a abrir o 'Leitor QR'.")
     if not LEITOR_DISPONIVEL:
         st.error("Módulo de leitura indisponível.")
     else:
