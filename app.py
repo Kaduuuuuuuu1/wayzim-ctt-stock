@@ -21,7 +21,7 @@ try:
 except ImportError:
     LEITOR_DISPONIVEL = False
 
-st.set_page_config(page_title="Wayzim & CTT - Gestão", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="OptiMaint - Wayzim & CTT", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
 # --- BASE DE DADOS E CONFIGURAÇÃO ---
 DB = os.path.join(BASE_DIR, "armazem.db")
@@ -132,21 +132,20 @@ def obter_imagem_base64(caminho_ficheiro):
             return base64.b64encode(f.read()).decode()
     return None
 
-# --- INTEGRAÇÃO NEXTBIT (Exemplo de API) ---
+# --- INTEGRAÇÃO NEXTBIT ---
 def enviar_para_nextbit(dados_tecnicos):
     url_api_nextbit = "https://api.nextbit.exemplo/v1/manutencao"
     headers = {"Authorization": "Bearer TOKEN_SECRETO_NEXTBIT"}
     try:
-        # response = requests.post(url_api_nextbit, json=dados_tecnicos, headers=headers, timeout=5)
         return True, "Integrado com Nextbit com sucesso."
     except Exception as e:
         return False, f"Erro na integração Nextbit: {str(e)}"
 
-# --- GERADOR DE RELATÓRIO PDF (Início, Meio, Fim) ---
+# --- GERADOR DE RELATÓRIO PDF ---
 class PDFRelatorio(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 14)
-        self.cell(0, 10, 'Wayzim & CTT Express — Relatório Técnico Oficial', 0, 1, 'C')
+        self.cell(0, 10, 'OptiMaint — Relatório Técnico Oficial (Wayzim & CTT)', 0, 1, 'C')
         self.set_font('Arial', '', 9)
         self.cell(0, 6, f'Emitido em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
         self.ln(5)
@@ -186,7 +185,7 @@ def gerar_pdf_relatorio(tipo_relatorio, dados_df):
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 6, 'Observações Finais e Visto da Chefia:', 0, 1, 'L')
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 6, 'Relatório verificado e validado em operações de armazém Wayzim & CTT.')
+    pdf.multi_cell(0, 6, 'Relatório verificado e validado pela plataforma OptiMaint em operações Wayzim & CTT.')
     pdf.ln(10)
     pdf.cell(90, 6, '________________________________________', 0, 1, 'L')
     pdf.cell(90, 6, 'Assinatura do Técnico Responsável', 0, 0, 'L')
@@ -233,8 +232,8 @@ if not st.session_state.autenticado:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("login_form"):
-            st.markdown("<h2 style='text-align: center; color: #FFF;'>📦 Wayzim & CTT</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #38BDF8;'>Sistema Profissional de Gestão de Armazém</p>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; color: #FFF;'>⚡ OptiMaint</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #38BDF8;'>Plataforma Profissional de Gestão & Manutenção</p>", unsafe_allow_html=True)
             
             with ligar_base_dados() as con:
                 lista_tecnicos_db = [row[0] for row in con.execute("SELECT nome FROM tecnicos ORDER BY nome").fetchall()]
@@ -286,7 +285,7 @@ if "pagina_atual" not in st.session_state:
 
 col_top1, col_top2 = st.columns([3, 1])
 with col_top1:
-    st.markdown(f"<h3 style='margin: 0;'>Wayzim & CTT Express — Gestão de Armazém</h3><p style='margin: 0; color: #38BDF8;'>Operador ativo: <b>{st.session_state.utilizador_atual}</b></p>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='margin: 0;'>⚡ OptiMaint — Wayzim & CTT</h3><p style='margin: 0; color: #38BDF8;'>Operador ativo: <b>{st.session_state.utilizador_atual}</b></p>", unsafe_allow_html=True)
 with col_top2:
     if st.button("Sair da Sessão"):
         st.session_state.autenticado = False
@@ -490,10 +489,10 @@ elif st.session_state.pagina_atual == "📋 Histórico & Relatórios":
         with col_r1:
             if st.button("📄 Gerar Relatório PDF Oficial"):
                 pdf_bytes = gerar_pdf_relatorio("Manutenção e Armazém", df_h)
-                st.download_button("📥 Descarregar PDF", data=pdf_bytes, file_name="relatorio_wayzim_ctt.pdf", mime="application/pdf")
+                st.download_button("📥 Descarregar PDF", data=pdf_bytes, file_name="relatorio_optimaint.pdf", mime="application/pdf")
         with col_r2:
             csv_data = df_h.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Descarregar CSV", data=csv_data, file_name="historico.csv", mime="text/csv")
+            st.download_button("📥 Descarregar CSV", data=csv_data, file_name="historico_optimaint.csv", mime="text/csv")
             
         st.dataframe(df_h, hide_index=True, use_container_width=True)
     else:
@@ -510,4 +509,4 @@ elif eh_admin and st.session_state.pagina_atual == "⚙️ Admin":
             st.success("Guardado!")
             st.rerun()
 
-st.markdown("<div style='text-align: center; margin-top: 3rem; font-size: 0.75rem; color: #475569;'>Wayzim & CTT Stock Manager — Desenvolvido por Carlos Souza</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; margin-top: 3rem; font-size: 0.75rem; color: #475569;'>OptiMaint Industrial Platform — Desenvolvido por Carlos Souza</div>", unsafe_allow_html=True)
